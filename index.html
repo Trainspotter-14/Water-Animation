@@ -1,0 +1,1233 @@
+<!DOCTYPE html>
+<html lang="de" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hydrodynamik: Hand im Wasserstrom</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #060b14;
+            color: #e2e8f0;
+            overflow-x: hidden;
+        }
+        .font-mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+        canvas {
+            touch-action: none;
+            user-select: none;
+        }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.78);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(56, 189, 248, 0.18);
+        }
+        input[type=range] {
+            accent-color: #38bdf8;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between">
+
+    <!-- Header & Live Telemetry -->
+    <header class="glass-panel sticky top-0 z-30 px-4 py-3 border-b border-slate-800/80 shadow-lg">
+        <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5"></path>
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="text-lg md:text-xl font-bold bg-gradient-to-r from-cyan-300 via-sky-200 to-blue-400 bg-clip-text text-transparent">
+                        Hydrodynamik-Labor: Hand im Wasserstrom
+                    </h1>
+                    <p class="text-xs text-slate-400 hidden sm:block">Interaktive Simulation von $H_2O$-Molekülen, Staudruck & Wirbelstraßen</p>
+                </div>
+            </div>
+
+            <!-- Live Metrics -->
+            <div class="flex flex-wrap items-center gap-2 sm:gap-4">
+                <div class="bg-slate-900/90 border border-slate-800 px-3 py-1.5 rounded-lg flex flex-col">
+                    <span class="text-[10px] uppercase tracking-wider text-slate-400">Reynolds-Zahl ($Re$)</span>
+                    <div class="flex items-baseline gap-1.5">
+                        <span id="metric-re" class="font-mono text-sm sm:text-base font-semibold text-cyan-400">2450</span>
+                        <span id="metric-regime" class="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-medium">Turbulent</span>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900/90 border border-slate-800 px-3 py-1.5 rounded-lg flex flex-col">
+                    <span class="text-[10px] uppercase tracking-wider text-slate-400">Staudruck an Hand</span>
+                    <div class="flex items-baseline gap-1">
+                        <span id="metric-pressure" class="font-mono text-sm sm:text-base font-semibold text-rose-400">1.42</span>
+                        <span class="text-xs text-slate-500">kPa</span>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900/90 border border-slate-800 px-3 py-1.5 rounded-lg flex flex-col">
+                    <span class="text-[10px] uppercase tracking-wider text-slate-400">Wasserwiderstand ($F_D$)</span>
+                    <div class="flex items-baseline gap-1">
+                        <span id="metric-force" class="font-mono text-sm sm:text-base font-semibold text-emerald-400">14.8</span>
+                        <span class="text-xs text-slate-500">N</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-4 grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+        
+        <!-- Left/Center: Interactive Canvas Area -->
+        <div class="lg:col-span-8 flex flex-col gap-3 w-full">
+            <div class="relative rounded-2xl overflow-hidden border border-slate-800 shadow-2xl bg-[#040811] aspect-[16/10] w-full">
+                <canvas id="simCanvas" class="w-full h-full block cursor-grab active:cursor-grabbing"></canvas>
+
+                <!-- Floating Canvas Overlay Instructions -->
+                <div class="absolute top-3 left-3 pointer-events-none flex flex-wrap gap-2">
+                    <div class="glass-panel px-3 py-1.5 rounded-full text-xs text-slate-200 flex items-center gap-2 shadow">
+                        <span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
+                        <span><strong>Ziehen:</strong> Hand im Wasser bewegen</span>
+                    </div>
+                    <div class="glass-panel px-3 py-1.5 rounded-full text-xs text-slate-300 hidden sm:flex items-center gap-2 shadow">
+                        <span>💡 Klicke auf Infopunkte <strong class="text-amber-300">(1-4)</strong> für Details</span>
+                    </div>
+                </div>
+
+                <!-- Color Legend Overlay -->
+                <div class="absolute bottom-3 left-3 right-3 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
+                    <div class="glass-panel px-3 py-1.5 rounded-xl flex items-center gap-3 text-[11px]">
+                        <span class="text-slate-400 font-medium">Molekül-Status:</span>
+                        <div class="flex items-center gap-1">
+                            <span class="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block"></span>
+                            <span class="text-slate-300">Staudruck (Gebremst)</span>
+                        </div>
+                        <div class="flex items-center gap-1">
+                            <span class="w-2.5 h-2.5 rounded-full bg-sky-400 inline-block"></span>
+                            <span class="text-slate-300">Normalstrom</span>
+                        </div>
+                        <div class="flex items-center gap-1">
+                            <span class="w-2.5 h-2.5 rounded-full bg-teal-300 inline-block"></span>
+                            <span class="text-slate-300">Venturi-Jet (Schnell)</span>
+                        </div>
+                        <div class="flex items-center gap-1">
+                            <span class="w-2.5 h-2.5 rounded-full bg-purple-400 inline-block"></span>
+                            <span class="text-slate-300">Wirbel / Sog</span>
+                        </div>
+                    </div>
+
+                    <button id="btn-reset-hand" class="pointer-events-auto glass-panel hover:bg-slate-800/90 text-xs text-cyan-300 px-3 py-1.5 rounded-xl border border-cyan-500/30 transition flex items-center gap-1.5 shadow-lg">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                        </svg>
+                        Hand zentrieren
+                    </button>
+                </div>
+            </div>
+
+            <!-- Interactive Phenomenon Inspector Cards -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5">
+                <button data-zone="stagnation" class="zone-card text-left glass-panel p-3 rounded-xl border border-rose-500/40 bg-rose-950/20 hover:bg-rose-900/30 transition group relative overflow-hidden">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-xs font-bold uppercase tracking-wider text-rose-400">1. Staupunkt (Vorne)</span>
+                        <span class="w-5 h-5 rounded-full bg-rose-500/20 text-rose-300 text-xs flex items-center justify-center font-bold">1</span>
+                    </div>
+                    <p class="text-xs text-slate-300 leading-relaxed">
+                        Moleküle prallen auf die Hand, verlieren abrupt kinetische Energie und stauen sich. Es entsteht spürbarer <strong>Überdruck</strong>.
+                    </p>
+                </button>
+
+                <button data-zone="boundary" class="zone-card text-left glass-panel p-3 rounded-xl border border-slate-800 hover:border-cyan-500/40 transition group">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-xs font-bold uppercase tracking-wider text-cyan-400">2. Grenzschicht (Haut)</span>
+                        <span class="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-300 text-xs flex items-center justify-center font-bold">2</span>
+                    </div>
+                    <p class="text-xs text-slate-300 leading-relaxed">
+                        Durch Adhäsion haften $H_2O$-Moleküle direkt an der Haut fast still (<em>Haftbedingung</em>) und bremsen Nachbarschichten.
+                    </p>
+                </button>
+
+                <button data-zone="venturi" class="zone-card text-left glass-panel p-3 rounded-xl border border-slate-800 hover:border-teal-400/40 transition group">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-xs font-bold uppercase tracking-wider text-teal-300">3. Beschleunigung</span>
+                        <span class="w-5 h-5 rounded-full bg-teal-500/20 text-teal-300 text-xs flex items-center justify-center font-bold">3</span>
+                    </div>
+                    <p class="text-xs text-slate-300 leading-relaxed">
+                        Das verdrängte Wasser muss um die Hand und durch Fingerlücken ausweichen – es fließt dort <strong>deutlich schneller</strong> (Bernoulli).
+                    </p>
+                </button>
+
+                <button data-zone="wake" class="zone-card text-left glass-panel p-3 rounded-xl border border-slate-800 hover:border-purple-400/40 transition group">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-xs font-bold uppercase tracking-wider text-purple-400">4. Totwasser & Wirbel</span>
+                        <span class="w-5 h-5 rounded-full bg-purple-500/20 text-purple-300 text-xs flex items-center justify-center font-bold">4</span>
+                    </div>
+                    <p class="text-xs text-slate-300 leading-relaxed">
+                        Hinter der Hand reißt die Strömung ab. Durch <strong>Unterdruck</strong> strudeln Wassermoleküle rückwärts in gegenläufigen Wirbeln.
+                    </p>
+                </button>
+            </div>
+        </div>
+
+        <!-- Right Column: Controls & Molecular Zoom View -->
+        <div class="lg:col-span-4 flex flex-col gap-4 w-full">
+            
+            <!-- Control Panel -->
+            <div class="glass-panel rounded-2xl p-4 flex flex-col gap-4 shadow-xl">
+                <div class="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                    <h2 class="text-sm font-semibold text-white flex items-center gap-2">
+                        <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path>
+                        </svg>
+                        Simulations-Steuerung
+                    </h2>
+                    <button id="btn-hand-toggle" class="text-xs px-2.5 py-1 rounded-lg bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-500/30 transition font-medium">
+                        ✋ Hand im Wasser: AN
+                    </button>
+                </div>
+
+                <!-- Hand Posture Selection -->
+                <div>
+                    <label class="text-xs text-slate-400 font-medium block mb-1.5">Handhaltung im Strom</label>
+                    <div class="grid grid-cols-3 gap-1.5">
+                        <button data-posture="spread" class="posture-btn py-2 px-2 rounded-xl text-xs font-medium border border-cyan-500 bg-cyan-500/20 text-white transition flex flex-col items-center gap-1">
+                            <span class="text-base">🖐️</span>
+                            <span>Gespreizt</span>
+                        </button>
+                        <button data-posture="closed" class="posture-btn py-2 px-2 rounded-xl text-xs font-medium border border-slate-800 bg-slate-900/60 text-slate-300 hover:bg-slate-800 transition flex flex-col items-center gap-1">
+                            <span class="text-base">✋</span>
+                            <span>Geschlossen</span>
+                        </button>
+                        <button data-posture="edge" class="posture-btn py-2 px-2 rounded-xl text-xs font-medium border border-slate-800 bg-slate-900/60 text-slate-300 hover:bg-slate-800 transition flex flex-col items-center gap-1">
+                            <span class="text-base">🔪</span>
+                            <span>Schwertkante</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Sliders -->
+                <div class="space-y-3">
+                    <div>
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="text-slate-300">Strömungsgeschwindigkeit ($v_0$)</span>
+                            <span id="val-speed" class="font-mono text-cyan-400">1.5 m/s</span>
+                        </div>
+                        <input id="slider-speed" type="range" min="0.3" max="3.5" step="0.1" value="1.5" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer">
+                    </div>
+
+                    <div>
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="text-slate-300">Anstellwinkel der Hand ($\alpha$)</span>
+                            <span id="val-angle" class="font-mono text-cyan-400">0° (Quer)</span>
+                        </div>
+                        <input id="slider-angle" type="range" min="-90" max="90" step="5" value="0" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer">
+                    </div>
+
+                    <div>
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="text-slate-300">Teilchendichte</span>
+                            <span id="val-count" class="font-mono text-cyan-400">900 Moleküle</span>
+                        </div>
+                        <input id="slider-count" type="range" min="300" max="1500" step="100" value="900" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer">
+                    </div>
+                </div>
+
+                <!-- Visual Toggles -->
+                <div class="pt-1 border-t border-slate-800/80 grid grid-cols-2 gap-2">
+                    <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none bg-slate-900/60 p-2 rounded-lg border border-slate-800/80">
+                        <input type="checkbox" id="chk-molecules" class="rounded text-cyan-500 focus:ring-0">
+                        <span>🔬 $H_2O$-Moleküle zeigen</span>
+                    </label>
+                    <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none bg-slate-900/60 p-2 rounded-lg border border-slate-800/80">
+                        <input type="checkbox" id="chk-pressure" checked class="rounded text-cyan-500 focus:ring-0">
+                        <span>🌡️ Druckfeld-Heatmap</span>
+                    </label>
+                    <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none bg-slate-900/60 p-2 rounded-lg border border-slate-800/80">
+                        <input type="checkbox" id="chk-vectors" class="rounded text-cyan-500 focus:ring-0">
+                        <span>🧭 Strömungspfeile</span>
+                    </label>
+                    <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none bg-slate-900/60 p-2 rounded-lg border border-slate-800/80">
+                        <input type="checkbox" id="chk-hotspots" checked class="rounded text-cyan-500 focus:ring-0">
+                        <span>📍 Infopunkte (1-4)</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Molecular Microscope / Detail Box -->
+            <div class="glass-panel rounded-2xl p-4 flex flex-col gap-3 shadow-xl border border-cyan-500/20">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold uppercase tracking-wider text-cyan-400 flex items-center gap-1.5">
+                        <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
+                        Molekular-Lupe ($H_2O$ Interaktion)
+                    </span>
+                    <span id="zoom-badge" class="text-[11px] px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 font-medium">
+                        Zone 1: Staupunkt
+                    </span>
+                </div>
+
+                <!-- Mini Molecular Animation Canvas -->
+                <div class="relative h-28 w-full rounded-xl overflow-hidden bg-slate-950 border border-slate-800">
+                    <canvas id="microCanvas" class="w-full h-full block"></canvas>
+                    <div class="absolute bottom-1.5 right-2 text-[10px] font-mono text-slate-400 bg-slate-900/80 px-1.5 py-0.5 rounded">
+                        Rot = Sauerstoff ($O$) | Weiß = Wasserstoff ($2H$)
+                    </div>
+                </div>
+
+                <div id="zone-detail-text" class="text-xs text-slate-300 space-y-1.5 leading-relaxed">
+                    <p class="font-semibold text-white">Was passiert hier mit den Wassermolekülen?</p>
+                    <p>
+                        Vor deiner Hand prallen die $H_2O$-Moleküle auf ein Hindernis. Ihre gerichtete Vorwärtsbewegung wird abgebremst und in <strong>ungeordnete Druck- und Drehbewegung</strong> umgewandelt. Die Wasserstoffbrückenbindungen werden kurzzeitig zusammengeschoben – du spürst das als kühlen Druck auf der Handfläche.
+                    </p>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <script>
+        window.onload = function () {
+            const canvas = document.getElementById('simCanvas');
+            const ctx = canvas.getContext('2d');
+            const microCanvas = document.getElementById('microCanvas');
+            const microCtx = microCanvas.getContext('2d');
+
+            // Simulation state
+            const state = {
+                handPresent: true,
+                handX: 0.36, // relative to canvas width
+                handY: 0.50, // relative to canvas height
+                handAngle: 0, // degrees
+                posture: 'spread', // 'spread' | 'closed' | 'edge'
+                flowSpeed: 1.5, // m/s
+                particleCount: 900,
+                showMolecules: false,
+                showPressure: true,
+                showVectors: false,
+                showHotspots: true,
+                activeZone: 'stagnation',
+                isDragging: false,
+                dragOffsetX: 0,
+                dragOffsetY: 0,
+                time: 0
+            };
+
+            // Zone explanations for the Molecular Inspector
+            const zoneData = {
+                stagnation: {
+                    badge: 'Zone 1: Staupunkt (Überdruck)',
+                    badgeClass: 'bg-rose-500/20 text-rose-300',
+                    title: 'Abruptes Abbremsen & Druckaufbau',
+                    desc: 'Vor der Hand wird die Strömung fast auf null abgebremst. Nach dem Gesetz von Bernoulli wandelt sich die Bewegungsenergie der H₂O-Moleküle in statischen Druck (Staudruck) um. Die Moleküle drängen sich dicht zusammen und weichen seitlich aus.'
+                },
+                boundary: {
+                    badge: 'Zone 2: Grenzschicht an der Haut',
+                    badgeClass: 'bg-cyan-500/20 text-cyan-300',
+                    title: 'Adhäsion & Reibung an der Hautoberfläche',
+                    desc: 'Wasser ist ein polares Molekül (Dipol). Direkt an deiner Haut haften die H₂O-Moleküle durch Adhäsionskräfte fast unbeweglich fest (Haftbedingung). Erst wenige Millimeter weiter außen gleiten die Wasserschichten aneinander vorbei (Scherung).'
+                },
+                venturi: {
+                    badge: 'Zone 3: Venturi-Beschleunigung',
+                    badgeClass: 'bg-teal-500/20 text-teal-300',
+                    title: 'Enge Lücken = Hohe Geschwindigkeit',
+                    desc: 'Da Wasser nahezu inkompressibel ist, muss dieselbe Wassermenge pro Sekunde an deiner Hand vorbei. Zwischen gespreizten Fingern und an den Handkanten verengt sich der Querschnitt – die Moleküle schießen wie durch eine Düse deutlich schneller hindurch.'
+                },
+                wake: {
+                    badge: 'Zone 4: Totwasser & Kármán-Wirbel',
+                    badgeClass: 'bg-purple-500/20 text-purple-300',
+                    title: 'Strömungsabriss, Unterdruck & Strudel',
+                    desc: 'Hinter deiner Hand kann das schnelle Wasser der Kontur nicht mehr folgen – die Strömung reißt ab. Es entsteht ein Unterdruckgebiet (Sog), das Wassermoleküle von hinten zurück zur Hand zieht. Es bilden sich abwechselnd links- und rechtsdrehende Wirbel.'
+                }
+            };
+
+            // Resize canvases
+            let width = 800;
+            let height = 500;
+            function resizeCanvases() {
+                const rect = canvas.parentElement.getBoundingClientRect();
+                width = rect.width;
+                height = rect.height;
+                canvas.width = width * window.devicePixelRatio;
+                canvas.height = height * window.devicePixelRatio;
+                ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+
+                const mRect = microCanvas.parentElement.getBoundingClientRect();
+                microCanvas.width = mRect.width * window.devicePixelRatio;
+                microCanvas.height = mRect.height * window.devicePixelRatio;
+                microCtx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+            }
+            window.addEventListener('resize', resizeCanvases);
+            resizeCanvases();
+
+            // Generate collision capsules/circles representing the hand geometry in local coordinates
+            function getHandPrimitives() {
+                const scale = Math.min(width, height) / 480;
+                const rad = (state.handAngle * Math.PI) / 180;
+                const cos = Math.cos(rad);
+                const sin = Math.sin(rad);
+                const cx = state.handX * width;
+                const cy = state.handY * height;
+
+                const localCapsules = [];
+
+                if (state.posture === 'spread') {
+                    // Palm
+                    localCapsules.push({ x1: -10, y1: -22, x2: -10, y2: 26, r: 28 });
+                    // Thumb
+                    localCapsules.push({ x1: -12, y1: -32, x2: -30, y2: -68, r: 10 });
+                    // Index
+                    localCapsules.push({ x1: -5, y1: -28, x2: 12, y2: -86, r: 9.5 });
+                    // Middle
+                    localCapsules.push({ x1: 2, y1: -8, x2: 34, y2: -68, r: 10 });
+                    // Ring
+                    localCapsules.push({ x1: 2, y1: 12, x2: 34, y2: 64, r: 9.5 });
+                    // Pinky
+                    localCapsules.push({ x1: -6, y1: 26, x2: 14, y2: 84, r: 8.5 });
+                } else if (state.posture === 'closed') {
+                    // Closed flat hand blocking the stream
+                    localCapsules.push({ x1: -6, y1: -35, x2: -6, y2: 35, r: 26 });
+                    localCapsules.push({ x1: 2, y1: -72, x2: 2, y2: 72, r: 19 });
+                    localCapsules.push({ x1: -16, y1: -48, x2: -10, y2: -75, r: 11 });
+                } else if (state.posture === 'edge') {
+                    // Streamlined side profile ("knife edge")
+                    localCapsules.push({ x1: -65, y1: 0, x2: 65, y2: 0, r: 15 });
+                    localCapsules.push({ x1: -30, y1: -4, x2: 25, y2: -4, r: 18 });
+                }
+
+                // Transform local capsules to world space
+                return localCapsules.map(c => {
+                    const lx1 = c.x1 * scale;
+                    const ly1 = c.y1 * scale;
+                    const lx2 = c.x2 * scale;
+                    const ly2 = c.y2 * scale;
+                    return {
+                        x1: cx + (lx1 * cos - ly1 * sin),
+                        y1: cy + (lx1 * sin + ly1 * cos),
+                        x2: cx + (lx2 * cos - ly2 * sin),
+                        y2: cy + (lx2 * sin + ly2 * cos),
+                        r: c.r * scale
+                    };
+                });
+            }
+
+            // Distance from point (px, py) to line segment (x1, y1)-(x2, y2)
+            function distToSegment(px, py, x1, y1, x2, y2) {
+                const dx = x2 - x1;
+                const dy = y2 - y1;
+                const l2 = dx * dx + dy * dy;
+                if (l2 === 0) {
+                    const ddx = px - x1;
+                    const ddy = py - y1;
+                    return { dist: Math.hypot(ddx, ddy), nx: ddx, ny: ddy, cx: x1, cy: y1 };
+                }
+                let t = ((px - x1) * dx + (py - y1) * dy) / l2;
+                t = Math.max(0, Math.min(1, t));
+                const projX = x1 + t * dx;
+                const projY = y1 + t * dy;
+                const ddx = px - projX;
+                const ddy = py - projY;
+                const dist = Math.hypot(ddx, ddy);
+                return {
+                    dist,
+                    nx: dist > 0.0001 ? ddx / dist : 1,
+                    ny: dist > 0.0001 ? ddy / dist : 0,
+                    cx: projX,
+                    cy: projY
+                };
+            }
+
+            // Compute fluid velocity and pressure at any world point (x, y)
+            function sampleFluidField(x, y, primitives) {
+                const baseVx = state.flowSpeed * 115; // pixels per second
+                let vx = baseVx;
+                let vy = 0;
+                let pressure = 0; // -1 (vacuum/wake) to +1 (stagnation)
+                let minSurfaceDist = 9999;
+                let nearestNormalX = 0;
+                let nearestNormalY = 0;
+
+                if (!state.handPresent) {
+                    return { vx, vy, pressure: 0, minSurfaceDist };
+                }
+
+                const cx = state.handX * width;
+                const cy = state.handY * height;
+                const scale = Math.min(width, height) / 480;
+
+                // Evaluate dipole-like potential deflection around each hand capsule
+                for (let i = 0; i < primitives.length; i++) {
+                    const cap = primitives[i];
+                    const seg = distToSegment(x, y, cap.x1, cap.y1, cap.x2, cap.y2);
+                    const surfDist = seg.dist - cap.r;
+
+                    if (surfDist < minSurfaceDist) {
+                        minSurfaceDist = surfDist;
+                        nearestNormalX = seg.nx;
+                        nearestNormalY = seg.ny;
+                    }
+
+                    const influenceRadius = cap.r * 3.4;
+                    if (seg.dist < influenceRadius && seg.dist > 0.001) {
+                        const factor = Math.pow(1 - seg.dist / influenceRadius, 2);
+
+                        // Upstream stagnation vs lateral deflection
+                        if (seg.nx < -0.15) {
+                            // In front of obstacle: slow down X and push Y outward
+                            vx -= baseVx * factor * 0.85 * Math.abs(seg.nx);
+                            const pushDir = seg.ny >= 0 ? 1 : -1;
+                            const nyStrength = Math.abs(seg.ny) < 0.25 ? pushDir * 0.6 : seg.ny;
+                            vy += baseVx * factor * 1.35 * nyStrength;
+                            pressure += factor * (-seg.nx) * 1.25;
+                        } else if (Math.abs(seg.ny) > 0.45) {
+                            // Top/Bottom edges & between fingers: Venturi acceleration!
+                            vx += baseVx * factor * 0.65;
+                            vy += baseVx * factor * seg.ny * 0.35;
+                            pressure -= factor * 0.45;
+                        }
+                    }
+                }
+
+                // Boundary layer skin friction very close to skin
+                const boundaryThickness = 10 * scale;
+                if (minSurfaceDist >= 0 && minSurfaceDist < boundaryThickness) {
+                    const bFactor = minSurfaceDist / boundaryThickness;
+                    vx *= 0.25 + 0.75 * bFactor;
+                    vy *= 0.25 + 0.75 * bFactor;
+                }
+
+                // Downstream Kármán Vortex Street & Low-Pressure Wake
+                const relX = x - cx;
+                const relY = y - cy;
+
+                // Effective vertical bluff width depends on posture and angle
+                const angleFactor = Math.abs(Math.cos((state.handAngle * Math.PI) / 180));
+                let bluffSpan = 95 * scale;
+                if (state.posture === 'edge') {
+                    bluffSpan = (22 + 75 * Math.abs(Math.sin((state.handAngle * Math.PI) / 180))) * scale;
+                } else if (state.posture === 'closed') {
+                    bluffSpan = (30 + 68 * angleFactor) * scale;
+                } else {
+                    bluffSpan = (35 + 65 * angleFactor) * scale;
+                }
+
+                if (relX > 0 && relX < 340 * scale && Math.abs(relY) < bluffSpan * 1.45) {
+                    const wakeXNorm = relX / (340 * scale);
+                    const wakeYNorm = relY / bluffSpan;
+                    const wakeEnvelope = Math.exp(-wakeYNorm * wakeYNorm * 1.4) * (1 - wakeXNorm * 0.75);
+
+                    // Recirculation zone right behind the palm
+                    if (relX < 95 * scale && Math.abs(relY) < bluffSpan * 0.75) {
+                        const backflow = Math.sin((relX / (95 * scale)) * Math.PI);
+                        vx -= baseVx * 1.15 * wakeEnvelope * backflow;
+                        vy -= (relY / bluffSpan) * baseVx * 0.55 * wakeEnvelope;
+                        pressure -= 0.85 * wakeEnvelope;
+                    } else {
+                        // Shedding alternating vortices (Kármán vortex street)
+                        const freq = 0.045 / scale;
+                        const phase = relX * freq - state.time * state.flowSpeed * 4.8;
+                        const vortexWave = Math.sin(phase);
+                        const vortexCurl = Math.cos(phase);
+
+                        vx -= baseVx * 0.35 * wakeEnvelope;
+                        vy += baseVx * 0.68 * wakeEnvelope * vortexWave;
+                        vx += baseVx * 0.28 * wakeEnvelope * vortexCurl * (relY > 0 ? 1 : -1);
+                        pressure -= 0.55 * wakeEnvelope;
+                    }
+                }
+
+                return { vx, vy, pressure, minSurfaceDist, nearestNormalX, nearestNormalY };
+            }
+
+            // Particle system representing H2O molecules / fluid parcels
+            let particles = [];
+            function createParticle(randomX = true) {
+                return {
+                    x: randomX ? Math.random() * width : -10 - Math.random() * 40,
+                    y: Math.random() * height,
+                    vx: state.flowSpeed * 115,
+                    vy: 0,
+                    angle: Math.random() * Math.PI * 2,
+                    spin: (Math.random() - 0.5) * 2,
+                    history: [],
+                    pressure: 0,
+                    speedRatio: 1
+                };
+            }
+
+            function syncParticles() {
+                while (particles.length < state.particleCount) {
+                    particles.push(createParticle(true));
+                }
+                if (particles.length > state.particleCount) {
+                    particles.length = state.particleCount;
+                }
+            }
+            syncParticles();
+
+            // Update particles
+            function updateParticles(dt) {
+                const primitives = getHandPrimitives();
+                const baseSpeed = state.flowSpeed * 115;
+
+                for (let i = 0; i < particles.length; i++) {
+                    const p = particles[i];
+
+                    // Record position for smooth streamlines
+                    p.history.push({ x: p.x, y: p.y });
+                    if (p.history.length > (state.showMolecules ? 5 : 9)) {
+                        p.history.shift();
+                    }
+
+                    const field = sampleFluidField(p.x, p.y, primitives);
+
+                    // Smoothly relax particle velocity toward local fluid velocity
+                    p.vx += (field.vx - p.vx) * Math.min(1, dt * 10);
+                    p.vy += (field.vy - p.vy) * Math.min(1, dt * 10);
+
+                    // Move particle
+                    p.x += p.vx * dt;
+                    p.y += p.vy * dt;
+
+                    // Hard collision check against hand capsules so no molecule passes inside the hand
+                    if (state.handPresent) {
+                        for (let j = 0; j < primitives.length; j++) {
+                            const cap = primitives[j];
+                            const seg = distToSegment(p.x, p.y, cap.x1, cap.y1, cap.x2, cap.y2);
+                            const minDist = cap.r + 2;
+                            if (seg.dist < minDist) {
+                                // Push molecule out to skin surface
+                                p.x = seg.cx + seg.nx * minDist;
+                                p.y = seg.cy + seg.ny * minDist;
+
+                                // Slide tangentially along skin surface
+                                const dot = p.vx * seg.nx + p.vy * seg.ny;
+                                if (dot < 0) {
+                                    p.vx -= dot * seg.nx * 1.1;
+                                    p.vy -= dot * seg.ny * 1.1;
+                                }
+                                // Induce molecular rotation from shear stress
+                                p.spin = (seg.ny >= 0 ? 1 : -1) * state.flowSpeed * 4;
+                            }
+                        }
+                    }
+
+                    const speed = Math.hypot(p.vx, p.vy);
+                    p.speedRatio = speed / Math.max(20, baseSpeed);
+                    p.pressure = field.pressure;
+                    p.angle += (p.spin + (p.vy / 80)) * dt;
+
+                    // Respawn when leaving right or vertical bounds
+                    if (p.x > width + 30 || p.x < -60 || p.y < -40 || p.y > height + 40) {
+                        particles[i] = createParticle(false);
+                    }
+                }
+            }
+
+            // Draw pressure heatmap around the hand
+            function drawPressureHeatmap(primitives) {
+                if (!state.handPresent || !state.showPressure) return;
+
+                const cx = state.handX * width;
+                const cy = state.handY * height;
+                const scale = Math.min(width, height) / 480;
+
+                ctx.save();
+                // High pressure stagnation glow (Upstream)
+                const stagGrad = ctx.createRadialGradient(
+                    cx - 38 * scale, cy, 5 * scale,
+                    cx - 25 * scale, cy, 115 * scale
+                );
+                const intensity = Math.min(0.55, state.flowSpeed * 0.2);
+                stagGrad.addColorStop(0, `rgba(244, 63, 94, ${intensity})`);
+                stagGrad.addColorStop(0.5, `rgba(251, 113, 133, ${intensity * 0.45})`);
+                stagGrad.addColorStop(1, 'rgba(244, 63, 94, 0)');
+                ctx.fillStyle = stagGrad;
+                ctx.beginPath();
+                ctx.arc(cx - 25 * scale, cy, 115 * scale, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Low pressure wake glow (Downstream suction)
+                const wakeGrad = ctx.createRadialGradient(
+                    cx + 55 * scale, cy, 10 * scale,
+                    cx + 95 * scale, cy, 165 * scale
+                );
+                wakeGrad.addColorStop(0, `rgba(168, 85, 247, ${intensity * 0.95})`);
+                wakeGrad.addColorStop(0.6, `rgba(139, 92, 246, ${intensity * 0.35})`);
+                wakeGrad.addColorStop(1, 'rgba(168, 85, 247, 0)');
+                ctx.fillStyle = wakeGrad;
+                ctx.beginPath();
+                ctx.arc(cx + 95 * scale, cy, 165 * scale, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+
+            // Draw background velocity vector grid
+            function drawVectorGrid(primitives) {
+                if (!state.showVectors) return;
+                const step = 36;
+                ctx.save();
+                ctx.lineWidth = 1.2;
+
+                for (let x = 24; x < width; x += step) {
+                    for (let y = 24; y < height; y += step) {
+                        const f = sampleFluidField(x, y, primitives);
+                        if (f.minSurfaceDist < 0) continue;
+
+                        const mag = Math.hypot(f.vx, f.vy);
+                        const len = Math.min(18, (mag / 180) * 12);
+                        const ang = Math.atan2(f.vy, f.vx);
+
+                        ctx.strokeStyle = 'rgba(148, 163, 184, 0.28)';
+                        ctx.beginPath();
+                        ctx.moveTo(x, y);
+                        const ex = x + Math.cos(ang) * len;
+                        const ey = y + Math.sin(ang) * len;
+                        ctx.lineTo(ex, ey);
+                        ctx.stroke();
+
+                        // Arrowhead
+                        ctx.fillStyle = 'rgba(148, 163, 184, 0.4)';
+                        ctx.beginPath();
+                        ctx.moveTo(ex, ey);
+                        ctx.lineTo(ex - Math.cos(ang - 0.5) * 4, ey - Math.sin(ang - 0.5) * 4);
+                        ctx.lineTo(ex - Math.cos(ang + 0.5) * 4, ey - Math.sin(ang + 0.5) * 4);
+                        ctx.closePath();
+                        ctx.fill();
+                    }
+                }
+                ctx.restore();
+            }
+
+            // Color mapping for particle based on its dynamic state
+            function getParticleColor(p, alpha = 1) {
+                if (p.pressure > 0.28) {
+                    // Stagnation zone (red/rose)
+                    return `rgba(251, 113, 133, ${alpha})`;
+                } else if (p.pressure < -0.25) {
+                    // Turbulent wake / suction (purple)
+                    return `rgba(192, 132, 252, ${alpha})`;
+                } else if (p.speedRatio > 1.22) {
+                    // Venturi fast jet (bright cyan/teal)
+                    return `rgba(45, 212, 191, ${alpha})`;
+                }
+                // Normal stream (sky blue)
+                return `rgba(56, 189, 248, ${alpha})`;
+            }
+
+            // Render particles as streamlines or individual H2O molecules
+            function drawParticles() {
+                ctx.save();
+                for (let i = 0; i < particles.length; i++) {
+                    const p = particles[i];
+
+                    // Draw trail
+                    if (p.history.length > 1) {
+                        ctx.beginPath();
+                        ctx.moveTo(p.history[0].x, p.history[0].y);
+                        for (let j = 1; j < p.history.length; j++) {
+                            ctx.lineTo(p.history[j].x, p.history[j].y);
+                        }
+                        ctx.lineTo(p.x, p.y);
+                        ctx.strokeStyle = getParticleColor(p, state.showMolecules ? 0.28 : 0.65);
+                        ctx.lineWidth = state.showMolecules ? 1.2 : 2.1;
+                        ctx.lineCap = 'round';
+                        ctx.stroke();
+                    }
+
+                    if (state.showMolecules) {
+                        // Draw H2O molecule (1 Oxygen + 2 Hydrogen atoms at ~104.5 deg)
+                        ctx.save();
+                        ctx.translate(p.x, p.y);
+                        ctx.rotate(p.angle);
+
+                        // Hydrogen atoms (white)
+                        const hDist = 4.2;
+                        const halfAngle = 0.91; // ~52.25 deg in radians
+                        ctx.fillStyle = '#f8fafc';
+                        ctx.beginPath();
+                        ctx.arc(Math.cos(-halfAngle) * hDist, Math.sin(-halfAngle) * hDist, 1.9, 0, Math.PI * 2);
+                        ctx.arc(Math.cos(halfAngle) * hDist, Math.sin(halfAngle) * hDist, 1.9, 0, Math.PI * 2);
+                        ctx.fill();
+
+                        // Oxygen atom (colored by pressure/velocity state or red core)
+                        ctx.fillStyle = p.pressure > 0.28 ? '#f43f5e' : (p.pressure < -0.25 ? '#a855f7' : '#0284c7');
+                        ctx.beginPath();
+                        ctx.arc(0, 0, 3.1, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.restore();
+                    } else {
+                        // Sleek glowing droplet head
+                        ctx.fillStyle = getParticleColor(p, 0.95);
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, 2.1, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                }
+                ctx.restore();
+            }
+
+            // Render the stylized human hand inside the stream
+            function drawHand(primitives) {
+                if (!state.handPresent) return;
+
+                ctx.save();
+                // Draw subtle boundary layer halo around the hand
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                for (let i = 0; i < primitives.length; i++) {
+                    const c = primitives[i];
+                    ctx.beginPath();
+                    ctx.moveTo(c.x1, c.y1);
+                    ctx.lineTo(c.x2, c.y2);
+                    ctx.strokeStyle = 'rgba(56, 189, 248, 0.14)';
+                    ctx.lineWidth = (c.r + 7) * 2;
+                    ctx.stroke();
+                }
+
+                // Draw main hand body using capsules
+                for (let i = 0; i < primitives.length; i++) {
+                    const c = primitives[i];
+                    ctx.beginPath();
+                    ctx.moveTo(c.x1, c.y1);
+                    ctx.lineTo(c.x2, c.y2);
+                    ctx.strokeStyle = '#d99b78';
+                    ctx.lineWidth = c.r * 2;
+                    ctx.stroke();
+
+                    // Inner highlight for 3D anatomical shading
+                    ctx.beginPath();
+                    ctx.moveTo(c.x1, c.y1);
+                    ctx.lineTo(c.x2, c.y2);
+                    ctx.strokeStyle = '#ecc0a6';
+                    ctx.lineWidth = c.r * 1.45;
+                    ctx.stroke();
+                }
+
+                // Center palm grip indicator
+                const cx = state.handX * width;
+                const cy = state.handY * height;
+                ctx.fillStyle = 'rgba(15, 23, 42, 0.35)';
+                ctx.beginPath();
+                ctx.arc(cx, cy, 8, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+
+                ctx.restore();
+            }
+
+            // Get coordinates of the 4 educational hotspots relative to the hand
+            function getHotspotPositions() {
+                const cx = state.handX * width;
+                const cy = state.handY * height;
+                const scale = Math.min(width, height) / 480;
+                return [
+                    { id: 'stagnation', num: '1', x: cx - 52 * scale, y: cy, color: '#f43f5e' },
+                    { id: 'boundary', num: '2', x: cx - 12 * scale, y: cy - 35 * scale, color: '#38bdf8' },
+                    { id: 'venturi', num: '3', x: cx + 15 * scale, y: cy - 88 * scale, color: '#2dd4bf' },
+                    { id: 'wake', num: '4', x: cx + 85 * scale, y: cy + 10 * scale, color: '#c084fc' }
+                ];
+            }
+
+            function drawHotspots() {
+                if (!state.handPresent || !state.showHotspots) return;
+                const spots = getHotspotPositions();
+
+                ctx.save();
+                spots.forEach(s => {
+                    const isSelected = state.activeZone === s.id;
+                    const pulse = isSelected ? 4 * Math.sin(state.time * 6) : 0;
+
+                    // Outer ring
+                    ctx.beginPath();
+                    ctx.arc(s.x, s.y, 13 + pulse * 0.5, 0, Math.PI * 2);
+                    ctx.fillStyle = isSelected ? s.color : 'rgba(15, 23, 42, 0.85)';
+                    ctx.fill();
+                    ctx.lineWidth = 2;
+                    ctx.strokeStyle = s.color;
+                    ctx.stroke();
+
+                    // Number label
+                    ctx.fillStyle = isSelected ? '#0f172a' : '#f8fafc';
+                    ctx.font = 'bold 11px Inter, sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(s.num, s.x, s.y);
+                });
+                ctx.restore();
+            }
+
+            // Separate micro-animation showing H2O dipole behavior in the active zone
+            const microMolecules = Array.from({ length: 18 }, (_, i) => ({
+                x: Math.random() * 320,
+                y: 18 + Math.random() * 85,
+                vx: 40,
+                vy: 0,
+                ang: Math.random() * Math.PI * 2
+            }));
+
+            function renderMicroCanvas(dt) {
+                const mw = microCanvas.width / window.devicePixelRatio;
+                const mh = microCanvas.height / window.devicePixelRatio;
+                microCtx.clearRect(0, 0, mw, mh);
+
+                // Background subtle grid
+                microCtx.strokeStyle = 'rgba(51, 65, 85, 0.3)';
+                microCtx.lineWidth = 1;
+                for (let x = 0; x < mw; x += 24) {
+                    microCtx.beginPath();
+                    microCtx.moveTo(x, 0);
+                    microCtx.lineTo(x, mh);
+                    microCtx.stroke();
+                }
+
+                // Draw skin boundary if boundary or stagnation zone is selected
+                if (state.activeZone === 'stagnation') {
+                    microCtx.fillStyle = '#d99b78';
+                    microCtx.fillRect(mw - 28, 0, 28, mh);
+                    microCtx.fillStyle = 'rgba(244, 63, 94, 0.25)';
+                    microCtx.fillRect(mw - 85, 0, 57, mh);
+                } else if (state.activeZone === 'boundary') {
+                    microCtx.fillStyle = '#d99b78';
+                    microCtx.fillRect(0, mh - 18, mw, 18);
+                }
+
+                // Update & draw zoomed H2O molecules with hydrogen bond dashed lines
+                for (let i = 0; i < microMolecules.length; i++) {
+                    const m = microMolecules[i];
+
+                    if (state.activeZone === 'stagnation') {
+                        const distToWall = (mw - 32) - m.x;
+                        m.vx = Math.max(8, distToWall * 0.65) * state.flowSpeed;
+                        m.vy = (m.y < mh / 2 ? -1 : 1) * Math.max(0, (90 - distToWall) * 0.5);
+                        m.ang += dt * 4;
+                    } else if (state.activeZone === 'boundary') {
+                        const distToSkin = (mh - 22) - m.y;
+                        const shearFactor = Math.max(0.04, distToSkin / mh);
+                        m.vx = shearFactor * 110 * state.flowSpeed;
+                        m.vy = Math.sin(state.time * 4 + i) * 3;
+                        m.ang += shearFactor * dt * 5;
+                    } else if (state.activeZone === 'venturi') {
+                        m.vx = 135 * state.flowSpeed;
+                        m.vy = (mh / 2 - m.y) * 0.4;
+                        m.ang = 0.15 * Math.sin(state.time * 8 + i);
+                    } else if (state.activeZone === 'wake') {
+                        const cx = mw * 0.5;
+                        const cy = mh * 0.5;
+                        const dx = m.x - cx;
+                        const dy = m.y - cy;
+                        m.vx = -dy * 1.6 + 15;
+                        m.vy = dx * 1.1;
+                        m.ang += dt * 6;
+                    }
+
+                    m.x += m.vx * dt;
+                    m.y += m.vy * dt;
+
+                    if (m.x > mw - 30 && state.activeZone === 'stagnation') {
+                        m.x = 10;
+                        m.y = 20 + Math.random() * (mh - 40);
+                    }
+                    if (m.x > mw + 15) m.x = -10;
+                    if (m.x < -15) m.x = mw + 10;
+                    if (m.y > mh - 22 && state.activeZone === 'boundary') m.y = mh - 24;
+                    if (m.y < 10 || m.y > mh - 10) m.y = 20 + Math.random() * (mh - 40);
+
+                    // Draw temporary hydrogen bonds to nearby molecules
+                    for (let j = i + 1; j < microMolecules.length; j++) {
+                        const m2 = microMolecules[j];
+                        const d = Math.hypot(m.x - m2.x, m.y - m2.y);
+                        if (d < 42) {
+                            microCtx.strokeStyle = `rgba(56, 189, 248, ${(1 - d / 42) * 0.45})`;
+                            microCtx.setLineDash([2, 2]);
+                            microCtx.beginPath();
+                            microCtx.moveTo(m.x, m.y);
+                            microCtx.lineTo(m2.x, m2.y);
+                            microCtx.stroke();
+                            microCtx.setLineDash([]);
+                        }
+                    }
+
+                    // Draw zoomed H2O molecule
+                    microCtx.save();
+                    microCtx.translate(m.x, m.y);
+                    microCtx.rotate(m.ang);
+
+                    // Bonds
+                    microCtx.strokeStyle = '#94a3b8';
+                    microCtx.lineWidth = 2;
+                    microCtx.beginPath();
+                    microCtx.moveTo(0, 0);
+                    microCtx.lineTo(Math.cos(-0.91) * 9, Math.sin(-0.91) * 9);
+                    microCtx.moveTo(0, 0);
+                    microCtx.lineTo(Math.cos(0.91) * 9, Math.sin(0.91) * 9);
+                    microCtx.stroke();
+
+                    // Hydrogens
+                    microCtx.fillStyle = '#ffffff';
+                    microCtx.beginPath();
+                    microCtx.arc(Math.cos(-0.91) * 9, Math.sin(-0.91) * 9, 3.8, 0, Math.PI * 2);
+                    microCtx.arc(Math.cos(0.91) * 9, Math.sin(0.91) * 9, 3.8, 0, Math.PI * 2);
+                    microCtx.fill();
+
+                    // Oxygen
+                    microCtx.fillStyle = '#ef4444';
+                    microCtx.beginPath();
+                    microCtx.arc(0, 0, 6, 0, Math.PI * 2);
+                    microCtx.fill();
+
+                    microCtx.restore();
+                }
+            }
+
+            function updateTelemetry() {
+                const v = state.flowSpeed;
+                // Dynamic pressure q = 0.5 * rho * v^2 (in kPa, rho = 1000 kg/m^3)
+                const stagPressureKPa = state.handPresent ? (0.5 * 1000 * v * v) / 1000 : 0;
+
+                // Projected area factor based on posture and angle
+                const angleRad = (state.handAngle * Math.PI) / 180;
+                const cosA = Math.abs(Math.cos(angleRad));
+                let areaFactor = 0.014 * (0.35 + 0.65 * cosA); // m^2
+                let cd = 1.15;
+
+                if (state.posture === 'closed') {
+                    areaFactor = 0.016 * (0.3 + 0.7 * cosA);
+                    cd = 1.28;
+                } else if (state.posture === 'edge') {
+                    areaFactor = 0.0045 + 0.011 * Math.abs(Math.sin(angleRad));
+                    cd = 0.45 + 0.7 * Math.abs(Math.sin(angleRad));
+                }
+
+                const dragForce = state.handPresent ? 0.5 * 1000 * v * v * cd * areaFactor : 0;
+                const charLength = state.posture === 'edge' ? 0.03 : 0.09;
+                // Scaled Reynolds number display for visual clarity
+                const re = state.handPresent ? Math.round((v * charLength / 0.00008) * (0.6 + 0.4 * cosA)) : 0;
+
+                document.getElementById('metric-re').textContent = re.toLocaleString('de-DE');
+                document.getElementById('metric-pressure').textContent = stagPressureKPa.toFixed(2);
+                document.getElementById('metric-force').textContent = dragForce.toFixed(1);
+
+                const regimeEl = document.getElementById('metric-regime');
+                if (!state.handPresent) {
+                    regimeEl.textContent = 'Freier Strom';
+                    regimeEl.className = 'text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-300 font-medium';
+                } else if (re < 800) {
+                    regimeEl.textContent = 'Laminar / Sanft';
+                    regimeEl.className = 'text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-medium';
+                } else if (re < 1800) {
+                    regimeEl.textContent = 'Übergang / Wirbel';
+                    regimeEl.className = 'text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-medium';
+                } else {
+                    regimeEl.textContent = 'Turbulent (Wirbelstraße)';
+                    regimeEl.className = 'text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-medium';
+                }
+            }
+
+            // Select active zone for educational inspection
+            function setActiveZone(zoneKey) {
+                state.activeZone = zoneKey;
+                const info = zoneData[zoneKey];
+                const badge = document.getElementById('zoom-badge');
+                badge.textContent = info.badge;
+                badge.className = `text-[11px] px-2 py-0.5 rounded-full font-medium ${info.badgeClass}`;
+
+                document.getElementById('zone-detail-text').innerHTML = `
+                    <p class="font-semibold text-white">${info.title}</p>
+                    <p>${info.desc}</p>
+                `;
+
+                document.querySelectorAll('.zone-card').forEach(btn => {
+                    if (btn.dataset.zone === zoneKey) {
+                        btn.classList.add('ring-2', 'ring-cyan-400', 'bg-slate-800/80');
+                    } else {
+                        btn.classList.remove('ring-2', 'ring-cyan-400', 'bg-slate-800/80');
+                    }
+                });
+            }
+
+            // Pointer interaction on main canvas (drag hand or click hotspot)
+            function getPointerPos(e) {
+                const rect = canvas.getBoundingClientRect();
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                return {
+                    x: clientX - rect.left,
+                    y: clientY - rect.top
+                };
+            }
+
+            canvas.addEventListener('pointerdown', (e) => {
+                const pos = getPointerPos(e);
+
+                // Check if user clicked one of the 4 numbered hotspots first
+                if (state.handPresent && state.showHotspots) {
+                    const spots = getHotspotPositions();
+                    for (const s of spots) {
+                        if (Math.hypot(pos.x - s.x, pos.y - s.y) < 18) {
+                            setActiveZone(s.id);
+                            return;
+                        }
+                    }
+                }
+
+                // Start dragging the hand
+                if (state.handPresent) {
+                    const cx = state.handX * width;
+                    const cy = state.handY * height;
+                    if (Math.hypot(pos.x - cx, pos.y - cy) < 110) {
+                        state.isDragging = true;
+                        state.dragOffsetX = cx - pos.x;
+                        state.dragOffsetY = cy - pos.y;
+                    } else {
+                        // Move hand directly to clicked spot
+                        state.handX = Math.max(0.15, Math.min(0.85, pos.x / width));
+                        state.handY = Math.max(0.18, Math.min(0.82, pos.y / height));
+                        state.isDragging = true;
+                        state.dragOffsetX = 0;
+                        state.dragOffsetY = 0;
+                    }
+                }
+            });
+
+            window.addEventListener('pointermove', (e) => {
+                if (!state.isDragging) return;
+                const pos = getPointerPos(e);
+                state.handX = Math.max(0.15, Math.min(0.85, (pos.x + state.dragOffsetX) / width));
+                state.handY = Math.max(0.18, Math.min(0.82, (pos.y + state.dragOffsetY) / height));
+            });
+
+            window.addEventListener('pointerup', () => {
+                state.isDragging = false;
+            });
+
+            // UI Controls Bindings
+            document.getElementById('slider-speed').addEventListener('input', (e) => {
+                state.flowSpeed = parseFloat(e.target.value);
+                document.getElementById('val-speed').textContent = `${state.flowSpeed.toFixed(1)} m/s`;
+                updateTelemetry();
+            });
+
+            document.getElementById('slider-angle').addEventListener('input', (e) => {
+                state.handAngle = parseInt(e.target.value, 10);
+                const label = state.handAngle === 0 ? '0° (Quer)' : `${state.handAngle}°`;
+                document.getElementById('val-angle').textContent = label;
+                updateTelemetry();
+            });
+
+            document.getElementById('slider-count').addEventListener('input', (e) => {
+                state.particleCount = parseInt(e.target.value, 10);
+                document.getElementById('val-count').textContent = `${state.particleCount} Moleküle`;
+                syncParticles();
+            });
+
+            document.getElementById('chk-molecules').addEventListener('change', (e) => {
+                state.showMolecules = e.target.checked;
+            });
+            document.getElementById('chk-pressure').addEventListener('change', (e) => {
+                state.showPressure = e.target.checked;
+            });
+            document.getElementById('chk-vectors').addEventListener('change', (e) => {
+                state.showVectors = e.target.checked;
+            });
+            document.getElementById('chk-hotspots').addEventListener('change', (e) => {
+                state.showHotspots = e.target.checked;
+            });
+
+            document.getElementById('btn-hand-toggle').addEventListener('click', (e) => {
+                state.handPresent = !state.handPresent;
+                const btn = e.currentTarget;
+                if (state.handPresent) {
+                    btn.textContent = '✋ Hand im Wasser: AN';
+                    btn.className = 'text-xs px-2.5 py-1 rounded-lg bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-500/30 transition font-medium';
+                } else {
+                    btn.textContent = '🌊 Nur Wasserstrom';
+                    btn.className = 'text-xs px-2.5 py-1 rounded-lg bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700 transition font-medium';
+                }
+                updateTelemetry();
+            });
+
+            document.getElementById('btn-reset-hand').addEventListener('click', () => {
+                state.handPresent = true;
+                state.handX = 0.36;
+                state.handY = 0.50;
+                state.handAngle = 0;
+                document.getElementById('slider-angle').value = 0;
+                document.getElementById('val-angle').textContent = '0° (Quer)';
+                updateTelemetry();
+            });
+
+            document.querySelectorAll('.posture-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    state.posture = btn.dataset.posture;
+                    document.querySelectorAll('.posture-btn').forEach(b => {
+                        b.className = 'posture-btn py-2 px-2 rounded-xl text-xs font-medium border border-slate-800 bg-slate-900/60 text-slate-300 hover:bg-slate-800 transition flex flex-col items-center gap-1';
+                    });
+                    btn.className = 'posture-btn py-2 px-2 rounded-xl text-xs font-medium border border-cyan-500 bg-cyan-500/20 text-white transition flex flex-col items-center gap-1';
+                    updateTelemetry();
+                });
+            });
+
+            document.querySelectorAll('.zone-card').forEach(card => {
+                card.addEventListener('click', () => {
+                    setActiveZone(card.dataset.zone);
+                });
+            });
+
+            // Initialize default state
+            setActiveZone('stagnation');
+            updateTelemetry();
+
+            let lastTime = performance.now();
+            function animate(now) {
+                const dt = Math.min(0.033, (now - lastTime) / 1000);
+                lastTime = now;
+                state.time += dt;
+
+                ctx.clearRect(0, 0, width, height);
+
+                const primitives = getHandPrimitives();
+
+                // 1. Pressure Heatmap
+                drawPressureHeatmap(primitives);
+
+                // 2. Background velocity vectors
+                drawVectorGrid(primitives);
+
+                // 3. Update & render fluid particles / H2O molecules
+                updateParticles(dt);
+                drawParticles();
+
+                // 4. Draw Hand & Interactive Hotspots
+                drawHand(primitives);
+                drawHotspots();
+
+                // 5. Render zoomed-in molecular microscope
+                renderMicroCanvas(dt);
+
+                requestAnimationFrame(animate);
+            }
+
+            requestAnimationFrame(animate);
+        };
+    </script>
+</body>
+</html>
